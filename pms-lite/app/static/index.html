@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>人员管理平台（轻量版）</title>
+<style>
+  :root { --bg:#f5f7fa; --card:#fff; --line:#e4e7ed; --pri:#3a6df0; --ok:#2e9e5b; --bad:#d9534f; --muted:#888; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:#222; }
+  header { background:var(--pri); color:#fff; padding:12px 16px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+  header h1 { font-size:16px; margin:0; font-weight:600; }
+  header .who { font-size:13px; }
+  header button { background:rgba(255,255,255,.2); border:none; color:#fff; padding:6px 12px; border-radius:6px; cursor:pointer; }
+  nav { display:flex; gap:6px; padding:10px 12px; overflow-x:auto; background:var(--card); border-bottom:1px solid var(--line); }
+  nav button { border:1px solid var(--line); background:#fff; padding:7px 12px; border-radius:18px; cursor:pointer; white-space:nowrap; font-size:13px; }
+  nav button.active { background:var(--pri); color:#fff; border-color:var(--pri); }
+  main { padding:14px; max-width:1080px; margin:0 auto; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; margin-bottom:14px; }
+  h2 { font-size:15px; margin:0 0 10px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th,td { text-align:left; padding:8px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:600; }
+  .pill { display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; }
+  .pill.ok { background:#e6f6ec; color:var(--ok); }
+  .pill.bad { background:#fdeaea; color:var(--bad); }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end; margin-bottom:10px; }
+  .field { display:flex; flex-direction:column; gap:3px; }
+  .field label { font-size:12px; color:var(--muted); }
+  input,select { padding:7px 9px; border:1px solid var(--line); border-radius:6px; font-size:13px; min-width:120px; }
+  .btn { background:var(--pri); color:#fff; border:none; padding:8px 14px; border-radius:6px; cursor:pointer; font-size:13px; }
+  .btn.ghost { background:#fff; color:var(--pri); border:1px solid var(--pri); }
+  .btn.sm { padding:4px 9px; font-size:12px; }
+  .btn.danger { background:#fff; color:var(--bad); border:1px solid var(--bad); }
+  #login { max-width:320px; margin:80px auto; }
+  #msg { padding:8px 12px; border-radius:6px; margin-bottom:10px; font-size:13px; display:none; }
+  #msg.err { background:#fdeaea; color:var(--bad); }
+  #msg.ok { background:#e6f6ec; color:var(--ok); }
+  .hint { color:var(--muted); font-size:12px; }
+  .over { color:var(--bad); font-weight:600; }
+</style>
+</head>
+<body>
+
+<div id="login" class="card" style="display:none">
+  <h2>登录</h2>
+  <div class="row" style="flex-direction:column; align-items:stretch;">
+    <div class="field"><label>账号</label><input id="lu" value="admin" /></div>
+    <div class="field"><label>密码</label><input id="lp" type="password" value="admin123" /></div>
+    <button class="btn" style="margin-top:10px" onclick="doLogin()">登录</button>
+    <div class="hint" style="margin-top:8px">演示账号：admin / employee_a / employee_b / employee_c / depthead（密码均为 admin123）</div>
+  </div>
+</div>
+
+<div id="app" style="display:none">
+  <header>
+    <h1>人员管理平台（轻量版）</h1>
+    <div class="who"><span id="who"></span> <button onclick="doLogout()">退出</button></div>
+  </header>
+  <nav id="nav"></nav>
+  <main>
+    <div id="msg"></div>
+    <div id="view"></div>
+  </main>
+</div>
+
+<script>
+const API = "";
+let TOKEN = localStorage.getItem("pms_token") || "";
+let ME = null;
+
+async function api(path, opts = {}) {
+  opts.headers = opts.headers || {};
+  if (TOKEN) opts.headers["Authorization"] = "Bearer " + TOKEN;
+  if (opts.body && !(opts.body instanceof FormData)) opts.headers["Content-Type"] = "application/json";
+  const res = await fetch(API + path, opts);
+  if (res.status === 401) { logout(); throw new Error("未登录或令牌失效"); }
+  let data = null;
+  try { data = await res.json(); } catch (e) {}
+  if (!res.ok) throw new Error((data && data.detail) || ("错误 " + res.status));
+  return data;
+}
+
+function msg(text, ok = false) {
+  const m = document.getElementById("msg");
+  m.textContent = text; m.className = ok ? "ok" : "err"; m.style.display = text ? "block" : "none";
+  if (text) setTimeout(() => { m.style.display = "none"; }, 4000);
+}
+
+// ---------- 登录 ----------
+async function doLogin() {
+  try {
+    const r = await api("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username: document.getElementById("lu").value, password: document.getElementById("lp").value }),
+    });
+    TOKEN = r.access_token; ME = r.user;
+    localStorage.setItem("pms_token", TOKEN);
+    enterApp();
+  } catch (e) { msg(e.message); }
+}
+function doLogout() { logout(); }
+function logout() {
+  if (TOKEN) { api("/auth/logout", { method: "POST" }).catch(() => {}); }
+  TOKEN = ""; ME = null; localStorage.removeItem("pms_token");
+  document.getElementById("app").style.display = "none";
+  document.getElementById("login").style.display = "block";
+}
+
+async function enterApp() {
+  if (!ME) { try { ME = await api("/auth/me"); } catch (e) { logout(); return; } }
+  document.getElementById("login").style.display = "none";
+  document.getElementById("app").style.display = "block";
+  document.getElementById("who").textContent = ME.name + "（" + roleName(ME.role) + "）";
+  buildNav();
+  show("accounting");
+}
+
+function roleName(r) {
+  return { admin: "系统管理员", project_leader: "项目负责人", dept_leader: "部门负责人", employee: "普通员工" }[r] || r;
+}
+
+// ---------- 导航 ----------
+const ENTITIES = {
+  departments: { label: "部门", endpoint: "/departments", adminOnly: true,
+    fields: [ {k:"name",label:"名称"}, {k:"parent_id",label:"上级ID",type:"number",required:false} ] },
+  employees: { label: "员工", endpoint: "/employees", adminOnly: true,
+    fields: [ {k:"username",label:"账号"}, {k:"name",label:"姓名"}, {k:"password",label:"密码",default:"admin123"},
+      {k:"role",label:"角色",type:"select",options:["admin","project_leader","dept_leader","employee"]},
+      {k:"dept_id",label:"部门ID",type:"number",required:false} ] },
+  projects: { label: "项目", endpoint: "/projects", adminOnly: true,
+    fields: [ {k:"name",label:"名称"}, {k:"dept_id",label:"部门ID",type:"number",required:false},
+      {k:"leader_emp_id",label:"负责人ID",type:"number",required:false}, {k:"budget",label:"预算",type:"number"},
+      {k:"status",label:"状态",type:"select",options:["0","1"]}, {k:"start_date",label:"开始",type:"date",required:false},
+      {k:"end_date",label:"结束",type:"date",required:false} ] },
+  "unit-prices": { label: "日单价", endpoint: "/unit-prices", adminOnly: true,
+    fields: [ {k:"emp_id",label:"员工ID",type:"number"}, {k:"effective_date",label:"生效日期",type:"date"},
+      {k:"price",label:"日单价",type:"number"}, {k:"remark",label:"备注",required:false} ] },
+  "service-records": { label: "服务记录", endpoint: "/service-records",
+    fields: [ {k:"emp_id",label:"员工ID",type:"number"}, {k:"project_id",label:"项目ID",type:"number"},
+      {k:"start_date",label:"开始",type:"date"}, {k:"end_date",label:"结束",type:"date"}, {k:"remark",label:"备注",required:false} ] },
+  "cost-details": { label: "成本明细", endpoint: "/cost-details",
+    fields: [ {k:"project_id",label:"项目ID",type:"number"}, {k:"category",label:"类别"}, {k:"amount",label:"金额",type:"number"},
+      {k:"occur_date",label:"发生日期",type:"date",required:false}, {k:"remark",label:"备注",required:false} ] },
+};
+
+const TABS = [
+  { key: "accounting", label: "核算看板" },
+  { key: "departments", label: "部门" },
+  { key: "employees", label: "员工" },
+  { key: "projects", label: "项目" },
+  { key: "unit-prices", label: "日单价" },
+  { key: "service-records", label: "服务记录" },
+  { key: "cost-details", label: "成本明细" },
+  { key: "import", label: "导入" },
+];
+
+function buildNav() {
+  const nav = document.getElementById("nav");
+  nav.innerHTML = "";
+  TABS.forEach(t => {
+    const b = document.createElement("button");
+    b.textContent = t.label; b.dataset.key = t.key;
+    b.onclick = () => show(t.key);
+    nav.appendChild(b);
+  });
+}
+
+function setActive(key) {
+  document.querySelectorAll("#nav button").forEach(b => b.classList.toggle("active", b.dataset.key === key));
+}
+
+// ---------- 视图 ----------
+async function show(key) {
+  setActive(key);
+  const view = document.getElementById("view");
+  view.innerHTML = "";
+  if (key === "accounting") return renderAccounting(view);
+  if (key === "import") return renderImport(view);
+  const cfg = ENTITIES[key];
+  await renderCrud(view, cfg);
+}
+
+function fmt(v) {
+  if (v === null || v === undefined) return "";
+  if (typeof v === "number") return String(v);
+  return String(v);
+}
+
+async function renderCrud(view, cfg) {
+  const card = document.createElement("div"); card.className = "card";
+  card.innerHTML = "<h2>" + cfg.label + "</h2>";
+  view.appendChild(card);
+
+  // 新增表单（管理员专属实体对非管理员隐藏）
+  const canWrite = !cfg.adminOnly || (ME && ME.role === "admin");
+  if (canWrite) {
+    const form = document.createElement("div"); form.className = "row"; form.style.marginBottom = "14px";
+    cfg.fields.forEach(f => {
+      const wrap = document.createElement("div"); wrap.className = "field";
+      const lab = document.createElement("label"); lab.textContent = f.label + (f.required === false ? "" : "*");
+      let input;
+      if (f.type === "select") {
+        input = document.createElement("select");
+        f.options.forEach(o => { const op = document.createElement("option"); op.value = o; op.textContent = o; input.appendChild(op); });
+      } else {
+        input = document.createElement("input");
+        input.type = f.type || "text";
+        if (f.default) input.value = f.default;
+      }
+      input.dataset.k = f.k;
+      wrap.appendChild(lab); wrap.appendChild(input); form.appendChild(wrap);
+    });
+    const add = document.createElement("button"); add.className = "btn"; add.textContent = "新增";
+    add.onclick = async () => {
+      const body = {};
+      let ok = true;
+      cfg.fields.forEach(f => {
+        const el = form.querySelector("[data-k='" + f.k + "']");
+        let val = el.value;
+        if (f.required === false && val === "") { body[f.k] = null; return; }
+        if (f.type === "number") { if (val === "") { if (f.required === false) { body[f.k] = null; return; } val = "0"; } val = Number(val); }
+        body[f.k] = val;
+      });
+      if (!ok) return;
+      try { await api(cfg.endpoint, { method: "POST", body: JSON.stringify(body) }); msg("已新增", true); renderCrud(view, cfg); }
+      catch (e) { msg(e.message); }
+    };
+    form.appendChild(add);
+    card.appendChild(form);
+  } else {
+    const hint = document.createElement("div"); hint.className = "hint";
+    hint.textContent = "（仅系统管理员可新增/修改" + cfg.label + "）"; card.appendChild(hint);
+  }
+
+  // 列表
+  try {
+    const rows = await api(cfg.endpoint);
+    const table = document.createElement("table");
+    if (!rows.length) { card.appendChild(Object.assign(document.createElement("div"), { className: "hint", textContent: "暂无数据" })); return; }
+    const cols = Object.keys(rows[0]);
+    const thead = document.createElement("tr");
+    cols.forEach(c => { const th = document.createElement("th"); th.textContent = c; thead.appendChild(th); });
+    const opth = document.createElement("th"); opth.textContent = "操作"; thead.appendChild(opth);
+    const h = document.createElement("thead"); h.appendChild(thead); table.appendChild(h);
+    const tb = document.createElement("tbody");
+    rows.forEach(r => {
+      const tr = document.createElement("tr");
+      cols.forEach(c => {
+        const td = document.createElement("td");
+        if ((c === "price_missing") && r[c]) td.innerHTML = '<span class="pill bad">缺失</span>';
+        else if ((c === "over_budget") && r[c]) td.innerHTML = '<span class="pill bad">超支</span>';
+        else td.textContent = fmt(r[c]);
+        tr.appendChild(td);
+      });
+      const td = document.createElement("td");
+      const del = document.createElement("button"); del.className = "btn danger sm"; del.textContent = "删除";
+      del.onclick = async () => { if (!confirm("确认删除？")) return; try { await api(cfg.endpoint + "/" + r.id, { method: "DELETE" }); msg("已删除", true); renderCrud(view, cfg); } catch (e) { msg(e.message); } };
+      td.appendChild(del); tr.appendChild(td);
+      tb.appendChild(tr);
+    });
+    table.appendChild(tb); card.appendChild(table);
+  } catch (e) { msg(e.message); }
+}
+
+let _cur = "accounting";
+function currentKey() { return _cur; }
+
+async function renderAccounting(view) {
+  _cur = "accounting";
+  const card = document.createElement("div"); card.className = "card";
+  card.innerHTML = "<h2>项目核算看板</h2>";
+  const bar = document.createElement("div"); bar.className = "row";
+  if (ME && ME.role === "admin") {
+    const rb = document.createElement("button"); rb.className = "btn ghost"; rb.textContent = "全量重算";
+    rb.onclick = async () => { try { const r = await api("/accounting/recompute", { method: "POST" }); msg("已重算 " + r.recomputed + " 条", true); renderAccounting(view); } catch (e) { msg(e.message); } };
+    bar.appendChild(rb);
+  }
+  card.appendChild(bar); view.appendChild(card);
+  try {
+    const rows = await api("/accounting/projects");
+    const table = document.createElement("table");
+    const cols = ["name","budget","labor","other_cost","total_cost","over_budget","service_count","missing_price_count"];
+    const labels = { name:"项目", budget:"预算", labor:"人工产值", other_cost:"其他成本", total_cost:"总支出", over_budget:"状态", service_count:"服务数", missing_price_count:"缺单价" };
+    const thead = document.createElement("tr"); cols.forEach(c => { const th = document.createElement("th"); th.textContent = labels[c] || c; thead.appendChild(th); });
+    table.appendChild(thead);
+    const tb = document.createElement("tbody");
+    rows.forEach(r => {
+      const tr = document.createElement("tr");
+      cols.forEach(c => {
+        const td = document.createElement("td");
+        if (c === "over_budget") td.innerHTML = r[c] ? '<span class="pill bad">超支</span>' : '<span class="pill ok">正常</span>';
+        else if (c === "total_cost" && r.over_budget) { td.textContent = fmt(r[c]); td.className = "over"; }
+        else td.textContent = fmt(r[c]);
+        tr.appendChild(td);
+      });
+      tb.appendChild(tr);
+    });
+    table.appendChild(tb); card.appendChild(table);
+  } catch (e) { msg(e.message); }
+}
+
+async function renderImport(view) {
+  const card = document.createElement("div"); card.className = "card";
+  card.innerHTML = "<h2>导入（CSV / XLSX）</h2>";
+  const hint = document.createElement("div"); hint.className = "hint";
+  hint.innerHTML = "表头需与字段一致。示例字段：<br>" +
+    "员工：username,name,password,role,dept_id<br>" +
+    "项目：name,dept_id,leader_emp_id,budget,status,start_date,end_date<br>" +
+    "日单价：emp_id,effective_date,price,remark<br>" +
+    "服务记录：emp_id,project_id,start_date,end_date,remark<br>" +
+    "成本明细：project_id,category,amount,occur_date,remark";
+  card.appendChild(hint);
+  const row = document.createElement("div"); row.className = "row"; row.style.marginTop = "10px";
+  const sel = document.createElement("select");
+  [["employees","员工"],["projects","项目"],["unit-prices","日单价"],["service-records","服务记录"],["cost-details","成本明细"]].forEach(([k,l]) => { const o = document.createElement("option"); o.value = k; o.textContent = l; sel.appendChild(o); });
+  const file = document.createElement("input"); file.type = "file"; file.accept = ".csv,.xlsx";
+  const btn = document.createElement("button"); btn.className = "btn"; btn.textContent = "上传导入";
+  btn.onclick = async () => {
+    if (!file.files.length) { msg("请选择文件"); return; }
+    const fd = new FormData(); fd.append("file", file.files[0]);
+    try { const r = await api("/import/" + sel.value, { method: "POST", body: fd }); msg("已导入 " + r.imported + " 条", true); }
+    catch (e) { msg(e.message); }
+  };
+  row.appendChild(sel); row.appendChild(file); row.appendChild(btn);
+  card.appendChild(row); view.appendChild(card);
+}
+
+// ---------- 启动 ----------
+if (TOKEN) enterApp(); else { document.getElementById("login").style.display = "block"; }
+</script>
+</body>
+</html>

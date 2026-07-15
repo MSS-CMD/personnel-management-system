@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# 本地数据库（首次运行自动生成）
+data/
+*.db
+*.sqlite
+
+# 编辑器/系统
+.DS_Store
+.idea/
