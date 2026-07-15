@@ -23,14 +23,27 @@
 
 ## 二、拿到代码
 
-两种方式任选其一：
+三种方式任选其一。推荐**方式 A（git 拉取）**，能随时拿到最新版。
 
-**方式 A：从 GitHub 下载（推荐，能拿到最新版）**
+**方式 A：用 git 拉取到本地（推荐）**
+1. 本机装好 Git（<https://git-scm.com/downloads>；Windows 安装时一路下一步即可）。
+2. 打开命令行（Windows 按 `Win+R` → 输入 `cmd`），执行：
+   ```
+   git clone https://github.com/MSS-CMD/personnel-management-system.git
+   ```
+   会在当前目录生成 `personnel-management-system` 文件夹。
+3. 进入程序目录：
+   ```
+   cd personnel-management-system/pms-lite
+   ```
+   > 程序在仓库的 `pms-lite/` 子文件夹里，不要进错到根目录。
+
+**方式 B：从 GitHub 下载 ZIP（不用装 Git）**
 1. 浏览器打开仓库：<https://github.com/MSS-CMD/personnel-management-system>
 2. 点绿色的 **Code → Download ZIP**，解压到任意文件夹（比如 `桌面/pms`）。
-3. 进入解压后的 `pms-lite` 文件夹。
+3. 进入解压后的 `personnel-management-system/pms-lite` 文件夹。
 
-**方式 B：直接复制本机已有的 `pms-lite` 文件夹**
+**方式 C：直接复制本机已有的 `pms-lite` 文件夹**
 把 `pms-lite` 整个文件夹拷到你想放的位置即可。
 
 ---
