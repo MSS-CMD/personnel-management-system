@@ -25,6 +25,7 @@ def create(e: EmployeeCreate, db: Session = Depends(get_db), _=Depends(require_r
     obj = models.Employee(
         username=e.username, name=e.name,
         password_hash=hash_password(e.password), role=e.role, dept_id=e.dept_id,
+        status=e.status,
     )
     db.add(obj)
     db.commit()

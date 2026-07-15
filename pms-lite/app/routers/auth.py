@@ -6,8 +6,8 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app import models
-from app.schemas import LoginReq, TokenOut, EmployeeOut
-from app.security import verify_password, gen_token
+from app.schemas import LoginReq, TokenOut, EmployeeOut, ChangePasswordReq
+from app.security import verify_password, gen_token, hash_password
 from app.deps import get_current_user
 
 router = APIRouter(prefix="/auth", tags=["认证"])
@@ -35,3 +35,19 @@ def logout(authorization: str = Header(None), db: Session = Depends(get_db)):
 @router.get("/me", response_model=EmployeeOut)
 def me(user: models.Employee = Depends(get_current_user)):
     return user
+
+
+@router.post("/change-password")
+def change_password(
+    req: ChangePasswordReq,
+    db: Session = Depends(get_db),
+    user: models.Employee = Depends(get_current_user),
+):
+    """登录用户修改自己的密码（需校验原密码）。"""
+    if not verify_password(req.old_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="原密码错误")
+    if len(req.new_password) < 6:
+        raise HTTPException(status_code=400, detail="新密码至少 6 位")
+    user.password_hash = hash_password(req.new_password)
+    db.commit()
+    return {"ok": True}

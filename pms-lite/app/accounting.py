@@ -75,3 +75,47 @@ def employee_output(session, emp_id: int) -> dict:
         "service_count": len(recs),
         "missing_price_count": sum(1 for r in recs if r.price_missing),
     }
+
+
+def monthly_output(session) -> list:
+    """按 员工 × 月份 汇总产值与天数。"""
+    agg = {}
+    for r in session.query(models.ServiceRecord).all():
+        if not r.output_amount:
+            continue
+        emp = session.get(models.Employee, r.emp_id)
+        month = r.start_date.strftime("%Y-%m")
+        key = (r.emp_id, month)
+        a = agg.setdefault(key, {
+            "emp_id": r.emp_id,
+            "name": emp.name if emp else "",
+            "month": month,
+            "output": Decimal(0),
+            "days": 0,
+        })
+        a["output"] += r.output_amount
+        a["days"] += r.days
+    return [dict(v) for v in agg.values()]
+
+
+def dept_report(session) -> list:
+    """按部门汇总：人数、人工产值、超支项目数。"""
+    result = []
+    for d in session.query(models.Department).all():
+        emps = session.query(models.Employee).filter(models.Employee.dept_id == d.id).all()
+        emp_ids = [e.id for e in emps]
+        labor = Decimal(0)
+        if emp_ids:
+            recs = session.query(models.ServiceRecord).filter(models.ServiceRecord.emp_id.in_(emp_ids)).all()
+            labor = sum((r.output_amount or Decimal(0)) for r in recs)
+        projs = session.query(models.Project).filter(models.Project.dept_id == d.id).all()
+        over = sum(1 for p in projs if project_summary(session, p.id)["over_budget"])
+        result.append({
+            "dept_id": d.id,
+            "name": d.name,
+            "emp_count": len(emps),
+            "labor": float(labor),
+            "over_budget_count": over,
+        })
+    return result
+

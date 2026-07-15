@@ -41,6 +41,7 @@ class Employee(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(20), default=ROLE_EMPLOYEE)
     dept_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="在岗")  # 在岗/休假/出差/待岗
     create_time: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
 

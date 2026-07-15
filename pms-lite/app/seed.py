@@ -20,19 +20,20 @@ def seed_if_empty():
         db.flush()
         dept1.parent_id = dept_root.id
 
-        def emp(username, name, role, dept_id):
+        def emp(username, name, role, dept_id, status="在岗"):
             return models.Employee(
                 username=username,
                 name=name,
                 password_hash=hash_password("admin123"),
                 role=role,
                 dept_id=dept_id,
+                status=status,
             )
 
         admin = emp("admin", "系统管理员", models.ROLE_ADMIN, dept_root.id)
-        A = emp("employee_a", "员工A(张三)", models.ROLE_PROJECT_LEADER, dept1.id)
-        B = emp("employee_b", "员工B(李四)", models.ROLE_PROJECT_LEADER, dept1.id)
-        C = emp("employee_c", "员工C(王五)", models.ROLE_EMPLOYEE, dept1.id)
+        A = emp("employee_a", "员工A(张三)", models.ROLE_PROJECT_LEADER, dept1.id, "在岗")
+        B = emp("employee_b", "员工B(李四)", models.ROLE_PROJECT_LEADER, dept1.id, "出差")
+        C = emp("employee_c", "员工C(王五)", models.ROLE_EMPLOYEE, dept1.id, "休假")
         dept_head = emp("depthead", "部门负责人(赵六)", models.ROLE_DEPT_LEADER, dept_root.id)
         db.add_all([admin, A, B, C, dept_head])
         db.flush()

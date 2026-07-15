@@ -24,6 +24,7 @@
   .pill { display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; }
   .pill.ok { background:#e6f6ec; color:var(--ok); }
   .pill.bad { background:#fdeaea; color:var(--bad); }
+  .pill.warn { background:#fef6e0; color:#b8860b; }
   .row { display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end; margin-bottom:10px; }
   .field { display:flex; flex-direction:column; gap:3px; }
   .field label { font-size:12px; color:var(--muted); }
@@ -55,13 +56,23 @@
 <div id="app" style="display:none">
   <header>
     <h1>人员管理平台（轻量版）</h1>
-    <div class="who"><span id="who"></span> <button onclick="doLogout()">退出</button></div>
+    <div class="who"><span id="who"></span> <button onclick="openChangePwd()">修改密码</button> <button onclick="doLogout()">退出</button></div>
   </header>
   <nav id="nav"></nav>
   <main>
     <div id="msg"></div>
     <div id="view"></div>
   </main>
+</div>
+
+<div id="cpwd" class="card" style="display:none; max-width:320px; margin:40px auto;">
+  <h2>修改密码</h2>
+  <div class="row" style="flex-direction:column; align-items:stretch;">
+    <div class="field"><label>原密码</label><input id="cp_old" type="password" /></div>
+    <div class="field"><label>新密码（至少6位）</label><input id="cp_new" type="password" /></div>
+    <button class="btn" style="margin-top:10px" onclick="submitChangePwd()">确认修改</button>
+    <button class="btn ghost" style="margin-top:8px" onclick="document.getElementById('cpwd').style.display='none'">取消</button>
+  </div>
 </div>
 
 <script>
@@ -100,6 +111,20 @@ async function doLogin() {
   } catch (e) { msg(e.message); }
 }
 function doLogout() { logout(); }
+function openChangePwd() {
+  document.getElementById("cp_old").value = "";
+  document.getElementById("cp_new").value = "";
+  document.getElementById("cpwd").style.display = "block";
+}
+async function submitChangePwd() {
+  const oldp = document.getElementById("cp_old").value;
+  const newp = document.getElementById("cp_new").value;
+  try {
+    await api("/auth/change-password", { method: "POST", body: JSON.stringify({ old_password: oldp, new_password: newp }) });
+    msg("密码已修改，下次登录请使用新密码", true);
+    document.getElementById("cpwd").style.display = "none";
+  } catch (e) { msg(e.message); }
+}
 function logout() {
   if (TOKEN) { api("/auth/logout", { method: "POST" }).catch(() => {}); }
   TOKEN = ""; ME = null; localStorage.removeItem("pms_token");
@@ -127,6 +152,7 @@ const ENTITIES = {
   employees: { label: "员工", endpoint: "/employees", adminOnly: true,
     fields: [ {k:"username",label:"账号"}, {k:"name",label:"姓名"}, {k:"password",label:"密码",default:"admin123"},
       {k:"role",label:"角色",type:"select",options:["admin","project_leader","dept_leader","employee"]},
+      {k:"status",label:"状态",type:"select",options:["在岗","休假","出差","待岗"]},
       {k:"dept_id",label:"部门ID",type:"number",required:false} ] },
   projects: { label: "项目", endpoint: "/projects", adminOnly: true,
     fields: [ {k:"name",label:"名称"}, {k:"dept_id",label:"部门ID",type:"number",required:false},
@@ -275,6 +301,12 @@ async function renderAccounting(view) {
     const rb = document.createElement("button"); rb.className = "btn ghost"; rb.textContent = "全量重算";
     rb.onclick = async () => { try { const r = await api("/accounting/recompute", { method: "POST" }); msg("已重算 " + r.recomputed + " 条", true); renderAccounting(view); } catch (e) { msg(e.message); } };
     bar.appendChild(rb);
+    const ex = document.createElement("button"); ex.className = "btn ghost"; ex.textContent = "导出报表";
+    ex.onclick = () => { window.open("/accounting/report/export?group_by=monthly", "_blank"); };
+    bar.appendChild(ex);
+    const exd = document.createElement("button"); exd.className = "btn ghost"; exd.textContent = "导出部门报表";
+    exd.onclick = () => { window.open("/accounting/report/export?group_by=dept", "_blank"); };
+    bar.appendChild(exd);
   }
   card.appendChild(bar); view.appendChild(card);
   try {
@@ -289,7 +321,11 @@ async function renderAccounting(view) {
       const tr = document.createElement("tr");
       cols.forEach(c => {
         const td = document.createElement("td");
-        if (c === "over_budget") td.innerHTML = r[c] ? '<span class="pill bad">超支</span>' : '<span class="pill ok">正常</span>';
+        if (c === "over_budget") {
+          if (r.over_budget) td.innerHTML = '<span class="pill bad">超支</span>';
+          else if (r.budget > 0 && (r.total_cost / r.budget) >= 0.9) td.innerHTML = '<span class="pill warn">预警</span>';
+          else td.innerHTML = '<span class="pill ok">正常</span>';
+        }
         else if (c === "total_cost" && r.over_budget) { td.textContent = fmt(r[c]); td.className = "over"; }
         else td.textContent = fmt(r[c]);
         tr.appendChild(td);
@@ -305,12 +341,22 @@ async function renderImport(view) {
   card.innerHTML = "<h2>导入（CSV / XLSX）</h2>";
   const hint = document.createElement("div"); hint.className = "hint";
   hint.innerHTML = "表头需与字段一致。示例字段：<br>" +
-    "员工：username,name,password,role,dept_id<br>" +
+    "员工：username,name,password,role,status,dept_id<br>" +
     "项目：name,dept_id,leader_emp_id,budget,status,start_date,end_date<br>" +
     "日单价：emp_id,effective_date,price,remark<br>" +
     "服务记录：emp_id,project_id,start_date,end_date,remark<br>" +
-    "成本明细：project_id,category,amount,occur_date,remark";
+    "成本明细：project_id,category,amount,occur_date,remark<br>" +
+    "（status 取值：在岗/休假/出差/待岗）";
   card.appendChild(hint);
+  // 下载模板
+  const tplRow = document.createElement("div"); tplRow.className = "row"; tplRow.style.marginTop = "6px";
+  tplRow.appendChild(Object.assign(document.createElement("span"), { className: "hint", textContent: "先下载模板填好再导入：" }));
+  [["employees","员工模板"],["projects","项目模板"],["unit-prices","日单价模板"],["service-records","服务记录模板"],["cost-details","成本明细模板"]].forEach(([k,l]) => {
+    const b = document.createElement("button"); b.className = "btn ghost sm"; b.textContent = l;
+    b.onclick = () => { window.open("/import/template/" + k, "_blank"); };
+    tplRow.appendChild(b);
+  });
+  card.appendChild(tplRow);
   const row = document.createElement("div"); row.className = "row"; row.style.marginTop = "10px";
   const sel = document.createElement("select");
   [["employees","员工"],["projects","项目"],["unit-prices","日单价"],["service-records","服务记录"],["cost-details","成本明细"]].forEach(([k,l]) => { const o = document.createElement("option"); o.value = k; o.textContent = l; sel.appendChild(o); });

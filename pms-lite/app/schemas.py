@@ -24,12 +24,14 @@ class EmployeeCreate(BaseModel):
     password: str
     role: str = "employee"
     dept_id: int | None = None
+    status: str = "在岗"
 
 
 class EmployeeUpdate(BaseModel):
     name: str | None = None
     role: str | None = None
     dept_id: int | None = None
+    status: str | None = None
     password: str | None = None
 
 
@@ -40,6 +42,7 @@ class EmployeeOut(BaseModel):
     name: str
     role: str
     dept_id: int | None
+    status: str
     create_time: datetime
 
 
@@ -146,6 +149,11 @@ class CostDetailOut(BaseModel):
 class LoginReq(BaseModel):
     username: str
     password: str
+
+
+class ChangePasswordReq(BaseModel):
+    old_password: str
+    new_password: str
 
 
 class TokenOut(BaseModel):

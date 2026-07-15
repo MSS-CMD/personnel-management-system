@@ -1,19 +1,41 @@
 """导入工具：支持 CSV（标准库）与 XLSX（openpyxl）。管理员可导入主数据。"""
 import csv
 import io
+import os
 from datetime import date
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.database import get_db, BASE_DIR
 from app.deps import require_role
 from app import models
 from app.security import hash_password
 from app.accounting import recompute_record
 
 router = APIRouter(prefix="/import", tags=["导入"])
+
+TEMPLATES = {
+    "employees": "员工导入模板.xlsx",
+    "projects": "项目导入模板.xlsx",
+    "unit-prices": "日单价导入模板.xlsx",
+    "service-records": "服务记录导入模板.xlsx",
+    "cost-details": "成本明细导入模板.xlsx",
+}
+TEMPLATES_DIR = os.path.normpath(os.path.join(str(BASE_DIR), "import_templates"))
+
+
+@router.get("/template/{kind}")
+def download_template(kind: str):
+    """下载导入模板（Excel）。"""
+    if kind not in TEMPLATES:
+        raise HTTPException(status_code=404, detail="未知模板类型")
+    p = os.path.join(TEMPLATES_DIR, TEMPLATES[kind])
+    if not os.path.exists(p):
+        raise HTTPException(status_code=404, detail="模板文件不存在，请联系管理员生成")
+    return FileResponse(p, filename=TEMPLATES[kind], media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 def _rows(file: UploadFile):
@@ -70,6 +92,7 @@ def import_employees(file: UploadFile = File(...), db: Session = Depends(get_db)
             password_hash=hash_password(_str(r.get("password")) or "admin123"),
             role=_str(r.get("role")) or "employee",
             dept_id=_int(r.get("dept_id")),
+            status=_str(r.get("status")) or "在岗",
         ))
         n += 1
     db.commit()
