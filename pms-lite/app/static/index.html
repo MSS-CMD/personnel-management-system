@@ -237,8 +237,25 @@ async function api(path, opts = {}) {
   if (res.status === 401) { logout(); throw new Error("未登录或令牌失效"); }
   let data = null;
   try { data = await res.json(); } catch (e) {}
-  if (!res.ok) throw new Error((data && data.detail) || ("错误 " + res.status));
+  if (!res.ok) throw new Error(extractErrorMessage(data, res.status));
   return data;
+}
+function extractErrorMessage(data, status) {
+  if (!data) return "请求失败（" + status + "）";
+  if (typeof data.detail === "string") return data.detail;
+  if (Array.isArray(data.detail)) {
+    return data.detail.map(d => {
+      if (typeof d === "string") return d;
+      const loc = Array.isArray(d.loc) ? d.loc.filter(x => x !== "body").join(".") : "";
+      return (loc ? loc + "：" : "") + (d.msg || "字段错误");
+    }).join("；");
+  }
+  return "请求失败（" + status + "）";
+}
+function errText(e) {
+  if (!e) return "操作失败";
+  if (typeof e === "string") return e;
+  return e.message || extractErrorMessage(e, e.status) || "操作失败";
 }
 
 function msg(text, ok = false) {
@@ -288,7 +305,7 @@ async function doLogin() {
   try {
     const r = await api("/auth/login", { method: "POST", body: JSON.stringify({ username: document.getElementById("lu").value, password: document.getElementById("lp").value }) });
     TOKEN = r.access_token; ME = r.user; localStorage.setItem("pms_token", TOKEN); enterApp();
-  } catch (e) { msg(e.message); }
+  } catch (e) { msg(errText(e)); }
 }
 function doLogout() { logout(); }
 function openChangePwd() { document.getElementById("cp_old").value = ""; document.getElementById("cp_new").value = ""; document.getElementById("cpwd").style.display = "block"; }
@@ -296,7 +313,7 @@ async function submitChangePwd() {
   try {
     await api("/auth/change-password", { method: "POST", body: JSON.stringify({ old_password: document.getElementById("cp_old").value, new_password: document.getElementById("cp_new").value }) });
     msg("密码已修改，下次登录请使用新密码", true); document.getElementById("cpwd").style.display = "none";
-  } catch (e) { msg(e.message); }
+  } catch (e) { msg(errText(e)); }
 }
 function logout() {
   if (TOKEN) { api("/auth/logout", { method: "POST" }).catch(() => {}); }
@@ -490,14 +507,17 @@ async function renderCrud(view, cfg) {
     });
     const add = document.createElement("button"); add.className = "btn"; add.textContent = "新增";
     add.onclick = async () => {
-      const body = {}; let priceVal = null; let hasExtra = false;
-      cfg.fields.forEach(f => {
-        if (f.extra) { if (f.extra === "unit-price") priceVal = Number(inputs[f.k].value); hasExtra = true; return; }
-        let val = inputs[f.k].value;
-        if (f.required === false && val === "") { body[f.k] = null; return; }
-        if (f.type === "number") { if (val === "") { if (f.required === false) { body[f.k] = null; return; } val = "0"; } val = Number(val); }
+      const body = {}; let priceVal = null; let firstMissing = null;
+      for (const f of cfg.fields) {
+        if (f.extra === "unit-price") { priceVal = Number(inputs[f.k].value); continue; }
+        const el = form.querySelector("[data-k='" + f.k + "']");
+        let val = el.value;
+        if (val === "" && f.required === false) continue; // 可选字段空值不发送
+        if (val === "" && f.required !== false) { firstMissing = f.label; break; }
+        if (f.type === "number") val = val === "" ? 0 : Number(val);
         body[f.k] = val;
-      });
+      }
+      if (firstMissing) { msg("请填写：" + firstMissing); return; }
       try {
         const created = await api(cfg.endpoint, { method: "POST", body: JSON.stringify(body) });
         // 员工创建后自动创建日单价
@@ -512,7 +532,7 @@ async function renderCrud(view, cfg) {
           msg("已新增" + cfg.label, true);
         }
         show(currentKey());
-      } catch (e) { msg(e.message); }
+      } catch (e) { msg(errText(e)); }
     };
     form.appendChild(add); card.appendChild(form);
   } else {
@@ -565,7 +585,7 @@ async function renderCrud(view, cfg) {
     card.appendChild(listContainer); applyFilters();
     searchInput.addEventListener("input", applyFilters);
     Object.values(filterSelects).forEach(sel => sel.addEventListener("change", applyFilters));
-  } catch (e) { loading.remove(); msg(e.message); }
+  } catch (e) { loading.remove(); msg(errText(e)); }
 }
 
 function f_extra_isUnitPrice(cfg) {
@@ -609,7 +629,7 @@ function renderTable(container, cfg, rows) {
       const edit = document.createElement("button"); edit.className = "btn ghost sm"; edit.textContent = "编辑"; edit.style.marginRight = "6px";
       edit.onclick = () => openEdit(cfg, r); td.appendChild(edit);
       const del = document.createElement("button"); del.className = "btn danger sm"; del.textContent = "删除";
-      del.onclick = async () => { if (!confirm("确认删除此" + cfg.label + "？")) return; try { await api(cfg.endpoint + "/" + r.id, { method: "DELETE" }); msg("已删除", true); show(currentKey()); } catch (e) { msg(e.message); } };
+      del.onclick = async () => { if (!confirm("确认删除此" + cfg.label + "？")) return; try { await api(cfg.endpoint + "/" + r.id, { method: "DELETE" }); msg("已删除", true); show(currentKey()); } catch (e) { msg(errText(e)); } };
       td.appendChild(del);
     } else { td.textContent = "—"; }
     tr.appendChild(td); tb.appendChild(tr);
@@ -645,7 +665,7 @@ async function submitEdit() {
   try {
     await api(_editCfg.endpoint + "/" + _editId, { method: "PUT", body: JSON.stringify(body) });
     msg("已更新" + _editCfg.label + "信息", true); closeEdit(); show(currentKey());
-  } catch (e) { msg(e.message); }
+  } catch (e) { msg(errText(e)); }
 }
 
 // ---------- 核算看板 ----------
@@ -659,7 +679,7 @@ async function renderAccounting(view) {
   const bar = document.createElement("div"); bar.className = "row"; bar.style.margin = "0";
   if (ME && ME.role === "admin") {
     const rb = document.createElement("button"); rb.className = "btn ghost"; rb.textContent = "全量重算";
-    rb.onclick = async () => { try { const r = await api("/accounting/recompute", { method: "POST" }); msg("已重算 " + r.recomputed + " 条", true); show(currentKey()); } catch (e) { msg(e.message); } };
+    rb.onclick = async () => { try { const r = await api("/accounting/recompute", { method: "POST" }); msg("已重算 " + r.recomputed + " 条", true); show(currentKey()); } catch (e) { msg(errText(e)); } };
     bar.appendChild(rb);
     const ex = document.createElement("button"); ex.className = "btn ghost"; ex.textContent = "导出月度报表";
     ex.onclick = () => { window.open("/accounting/report/export?group_by=monthly", "_blank"); }; bar.appendChild(ex);
@@ -696,7 +716,7 @@ async function renderAccounting(view) {
       grid.appendChild(card);
     });
     wrap.appendChild(grid);
-  } catch (e) { loading.remove(); msg(e.message); }
+  } catch (e) { loading.remove(); msg(errText(e)); }
 }
 
 // ---------- 导入 ----------
@@ -721,7 +741,7 @@ async function renderImport(view) {
   btn.onclick = async () => {
     if (!file.files.length) { msg("请先选择文件"); return; }
     const fd = new FormData(); fd.append("file", file.files[0]);
-    try { const r = await api("/import/" + sel.value, { method: "POST", body: fd }); msg("已导入 " + r.imported + " 条记录", true); } catch (e) { msg(e.message); }
+    try { const r = await api("/import/" + sel.value, { method: "POST", body: fd }); msg("已导入 " + r.imported + " 条记录", true); } catch (e) { msg(errText(e)); }
   };
   row.appendChild(sel); row.appendChild(file); row.appendChild(btn); card.appendChild(row); view.appendChild(card);
 }
