@@ -174,9 +174,10 @@
 
   /* ---------- 修改密码 模态 ---------- */
   #cpwd { display: none; position: fixed; inset: 0; background: rgba(15,23,42,.55); z-index: 100; padding: 16px; }
-  #cpwd .modal-card {
+  .modal-card {
     position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-    width: min(380px, 94vw); padding: 26px; border-radius: var(--radius); background: #fff; box-shadow: var(--shadow-lg);
+    width: min(380px, 94vw); padding: 24px; border-radius: var(--radius);
+    background: #fff; box-shadow: var(--shadow-lg);
   }
 
   /* ---------- 响应式 ---------- */
@@ -244,6 +245,17 @@
       <div class="field"><label>新密码（至少6位）</label><input id="cp_new" type="password" /></div>
       <button class="btn" style="margin-top:14px" onclick="submitChangePwd()">确认修改</button>
       <button class="btn ghost" style="margin-top:8px" onclick="document.getElementById('cpwd').style.display='none'">取消</button>
+    </div>
+  </div>
+</div>
+
+<div id="editModal" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,.55); z-index:100; padding:16px;">
+  <div class="modal-card" style="width:min(440px,94vw); max-height:88vh; overflow-y:auto;">
+    <h2 id="editTitle">编辑</h2>
+    <div id="editForm" class="row" style="flex-direction:column; align-items:stretch; margin-bottom:0;"></div>
+    <div style="display:flex; gap:8px; margin-top:16px;">
+      <button class="btn" style="flex:1" onclick="submitEdit()">保存修改</button>
+      <button class="btn ghost" style="flex:1" onclick="closeEdit()">取消</button>
     </div>
   </div>
 </div>
@@ -615,8 +627,13 @@ function renderTable(container, cfg, rows) {
       tr.appendChild(td);
     });
     const td = document.createElement("td");
-    const canDel = !cfg.adminOnly || (ME && ME.role === "admin");
-    if (canDel) {
+    td.style.whiteSpace = "nowrap";
+    const canWrite = !cfg.adminOnly || (ME && ME.role === "admin");
+    if (canWrite) {
+      const edit = document.createElement("button"); edit.className = "btn ghost sm"; edit.textContent = "编辑";
+      edit.style.marginRight = "6px";
+      edit.onclick = () => openEdit(cfg, r);
+      td.appendChild(edit);
       const del = document.createElement("button"); del.className = "btn danger sm"; del.textContent = "删除";
       del.onclick = async () => { if (!confirm("确认删除此" + cfg.label + "？")) return; try { await api(cfg.endpoint + "/" + r.id, { method: "DELETE" }); msg("已删除", true); _refCache = {}; renderCrud(container.parentElement, cfg); } catch (e) { msg(e.message); } };
       td.appendChild(del);
@@ -625,6 +642,83 @@ function renderTable(container, cfg, rows) {
     tb.appendChild(tr);
   });
   table.appendChild(tb); wrap.appendChild(table); container.appendChild(wrap);
+}
+
+// ---------- 编辑模态 ----------
+let _editCfg = null;
+let _editId = null;
+let _editViewContainer = null;
+
+function openEdit(cfg, row) {
+  _editCfg = cfg;
+  _editId = row.id;
+  _editViewContainer = document.getElementById("view");
+  document.getElementById("editTitle").textContent = "编辑" + cfg.label;
+  const form = document.getElementById("editForm");
+  form.innerHTML = "";
+
+  cfg.fields.forEach(f => {
+    // 密码字段编辑时不显示（已有修改密码功能）
+    if (f.k === "password") return;
+
+    const wrap = document.createElement("div"); wrap.className = "field";
+    const lab = document.createElement("label");
+    lab.textContent = f.label + (f.required === false ? "（可选）" : "");
+
+    let input;
+    if (f.type === "select") {
+      input = document.createElement("select");
+      if (f.required === false) { const op = document.createElement("option"); op.value = ""; op.textContent = "— 不选 —"; input.appendChild(op); }
+      if (f.ref) {
+        const list = _refCache[f.ref] || [];
+        list.forEach(r => { const op = document.createElement("option"); op.value = r.id; op.textContent = r[f.refLabel] || r.name || ("#" + r.id); input.appendChild(op); });
+      } else if (f.options) {
+        f.options.forEach(o => {
+          const op = document.createElement("option");
+          if (typeof o === "string") { op.value = o; op.textContent = o; }
+          else { op.value = o.v; op.textContent = o.l; }
+          input.appendChild(op);
+        });
+      }
+      if (row[f.k] !== null && row[f.k] !== undefined) input.value = row[f.k];
+    } else {
+      input = document.createElement("input");
+      input.type = f.type || "text";
+      input.value = (row[f.k] !== null && row[f.k] !== undefined) ? row[f.k] : "";
+      if (f.type === "number") input.step = "any";
+    }
+    input.dataset.k = f.k;
+    wrap.appendChild(lab); wrap.appendChild(input); form.appendChild(wrap);
+  });
+
+  document.getElementById("editModal").style.display = "block";
+}
+
+function closeEdit() {
+  document.getElementById("editModal").style.display = "none";
+  _editCfg = null; _editId = null;
+}
+
+async function submitEdit() {
+  if (!_editCfg || !_editId) return;
+  const form = document.getElementById("editForm");
+  const body = {};
+  _editCfg.fields.forEach(f => {
+    if (f.k === "password") return; // 编辑不改密码
+    const el = form.querySelector("[data-k='" + f.k + "']");
+    if (!el) return;
+    let val = el.value;
+    if (f.required === false && val === "") { body[f.k] = null; return; }
+    if (f.type === "number") { val = val === "" ? null : Number(val); }
+    body[f.k] = val;
+  });
+  try {
+    await api(_editCfg.endpoint + "/" + _editId, { method: "PUT", body: JSON.stringify(body) });
+    msg("已更新" + _editCfg.label + "信息", true);
+    closeEdit();
+    _refCache = {};
+    show(currentKey());
+  } catch (e) { msg(e.message); }
 }
 
 // ---------- 核算看板 ----------
