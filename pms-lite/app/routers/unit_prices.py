@@ -6,6 +6,7 @@ from app.database import get_db
 from app.deps import get_current_user, require_role
 from app import models
 from app.schemas import UnitPriceCreate, UnitPriceOut
+from app.accounting import recompute_employee
 
 router = APIRouter(prefix="/unit-prices", tags=["日单价"])
 
@@ -35,6 +36,8 @@ def create(u: UnitPriceCreate, db: Session = Depends(get_db), _=Depends(require_
     db.add(obj)
     db.commit()
     db.refresh(obj)
+    # 日单价变更后，自动重算该员工的服务记录，刷新“缺单价”标记
+    recompute_employee(db, u.emp_id)
     return obj
 
 
@@ -43,6 +46,9 @@ def delete(uid: int, db: Session = Depends(get_db), _=Depends(require_role(model
     obj = db.get(models.UnitPrice, uid)
     if not obj:
         raise HTTPException(status_code=404, detail="单价记录不存在")
+    emp_id = obj.emp_id
     db.delete(obj)
     db.commit()
+    # 删除单价后，重算该员工的服务记录（可能重新出现“缺单价”）
+    recompute_employee(db, emp_id)
     return {"ok": True}

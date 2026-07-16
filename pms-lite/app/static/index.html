@@ -373,7 +373,7 @@ const ENTITIES = {
     label: "日单价", endpoint: "/unit-prices", adminOnly: true,
     fields: [
       { k: "emp_id", label: "员工", type: "select", ref: "employees", refLabel: "name" },
-      { k: "effective_date", label: "生效日期", type: "date", default: "today" },
+      { k: "effective_date", label: "生效日期", type: "date", default: "today", hint: "单价的生效日；录入后会自动重算该员工全部服务记录，并按生效日匹配对应时段的单价（历史服务也可匹配）" },
       { k: "price", label: "日单价", type: "number" },
       { k: "remark", label: "备注", required: false }
     ],

@@ -8,17 +8,27 @@ from app import models
 
 
 def match_unit_price(session, emp_id: int, service_start: date) -> Decimal | None:
-    """取 effective_date <= 服务起始日 中最新的一条日单价；无则返回 None。"""
-    row = (
+    """匹配服务记录适用的日单价。
+
+    匹配规则（兼顾"历史调价"与"事后补录"两类场景）：
+    1. 优先取 effective_date <= 服务起始日 中最新的一条（标准历史单价，
+       适用于员工日单价曾随时间变动的情况）。
+    2. 若该员工所有单价的生效日均晚于服务起始日（典型场景：先有服务记录、
+       事后才录入日单价，且录入时默认生效日取当天），则兜底取该员工最早
+       的一条单价，保证历史服务记录也能匹配到日单价，避免误报"缺单价"。
+    """
+    prices = (
         session.query(models.UnitPrice)
-        .filter(
-            models.UnitPrice.emp_id == emp_id,
-            models.UnitPrice.effective_date <= service_start,
-        )
-        .order_by(models.UnitPrice.effective_date.desc())
-        .first()
+        .filter(models.UnitPrice.emp_id == emp_id)
+        .order_by(models.UnitPrice.effective_date.asc())
+        .all()
     )
-    return row.price if row else None
+    if not prices:
+        return None
+    before = [p for p in prices if p.effective_date <= service_start]
+    if before:
+        return before[-1].price  # 最新且不大于服务起始日
+    return prices[0].price  # 兜底：最早单价（适用于事后补录场景）
 
 
 def recompute_record(session, rec: models.ServiceRecord) -> models.ServiceRecord:
@@ -34,6 +44,15 @@ def recompute_record(session, rec: models.ServiceRecord) -> models.ServiceRecord
         rec.output_amount = Decimal(0)
         rec.price_missing = True
     return rec
+
+
+def recompute_employee(session, emp_id: int) -> int:
+    """重算某员工的所有服务记录（日单价变更后自动调用，避免手动全量重算）。"""
+    recs = session.query(models.ServiceRecord).filter_by(emp_id=emp_id).all()
+    for r in recs:
+        recompute_record(session, r)
+    session.commit()
+    return len(recs)
 
 
 def recompute_all(session) -> int:
